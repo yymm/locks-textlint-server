@@ -17,10 +17,10 @@ function execSync(cmd, options) {
 
   if (output.error) return { status: -1, message: output.error.code }
 
-  if (output.stdout && output.stdout.toString().length > 0) {
+  if (output.stdout) {
     return { status: 0, message: output.stdout.toString() }
   }
-  if (output.stderr && ret.stderr.toString().length > 0) {
+  if (output.stderr) {
     return { status: -1, message: output.stderr.toString() }
   }
 }
@@ -36,18 +36,29 @@ function configTextLint(options) {
   fs.writeFileSync('.textlintrc', JSON.stringify(options))
 }
 
+function listTextLintRules() {
+  let npms = execSync('npm', ['list', '--depth', '0'])
+  if (npms.status < 0)  return { error: npms.message }
+  let rulePkgs = npms.message.split('\n').filter((v) => { return v.match(/textlint-rule-.+@/) })
+  let rules = rulePkgs.map((v) => { return v.match(/textlint-rule-[^@]+/)[0].slice(14) })
+  return { rules: rules }
+}
+
 function execTextLint(text, options) {
   configTextLint(options)
 
   fs.writeFileSync('tmp.md', text)
 
-  const unix = execSync('./node_modules/.bin/textlint', ['-f', 'unix', 'tmp.md'])
-  if (unix.status < 0)  return { error: unix.message }
+  const json = execSync('./node_modules/.bin/textlint', ['-f', 'json', 'tmp.md'])
+  if (json.status < 0)  return { error: json.message }
 
-  const stylish = execSync('./node_modules/.bin/textlint', ['tmp.md'])
-  if (stylish.status < 0)  return { error: stylish.message }
+  try {
+    return { json: JSON.parse(json.message)[0].messages }
+  }
+  catch(e) {
+    return { error: 'Not have rules, textlint do not anything.' }
+  }
 
-  return { unix: unix.message, stylish: stylish.message }
 }
 
 function execTextFix(text, options) {
@@ -55,18 +66,12 @@ function execTextFix(text, options) {
 
   fs.writeFileSync('tmp.md', text)
 
-  const fix = execSync('./node_modules/.bin/textlint', ['--fix', '--dry-run', 'tmp.md'])
+  const fix = execSync('./node_modules/.bin/textlint', ['--fix', 'tmp.md'])
   if (fix.status < 0) return { error: fix.message }
 
-  return { fix: fix.message }
-}
+  let data = fs.readFileSync('tmp.md')
 
-function listTextLintRules() {
-  let npms = execSync('npm', ['list', '--depth', '0'])
-  if (npms.status < 0)  return { error: npms.message }
-  let rulePkgs = npms.message.split('\n').filter((v) => { return v.match(/textlint-rule-.+@/) })
-  let rules = rulePkgs.map((v) => { return v.match(/textlint-rule-[^@]+/)[0].slice(14) })
-  return { list: rules }
+  return { fix: data.toString() }
 }
 
 app.post('/', function(req, res) {
@@ -79,8 +84,7 @@ app.post('/connect', function(req, res) {
   // 初回通信時に使う
   // 指定された文字列を返却し通信確立、このあとはhandshakeを使う
   if (!req.body) return res.sendStatus(400)
-  console.log(req.body)
-  res.send({ message: 'ok' })
+  res.send(listTextLintRules())
 })
 
 app.post('/handshake', function(req, res) {
@@ -89,12 +93,16 @@ app.post('/handshake', function(req, res) {
   res.send(listTextLintRules())
 })
 
-app.post('/testlint/lint', function(req, res) {
+app.post('/lint', function(req, res) {
   if (!req.body) return res.sendStatus(400)
+  if (!req.body.text || !req.body.options) return res.sendStatus(400)
+  res.send(execTextLint(req.body.text, req.body.options))
 })
 
-app.post('/textlint/fix', function(req, res) {
+app.post('/fix', function(req, res) {
   if (!req.body) return res.sendStatus(400)
+  if (!req.body.text || !req.body.options) return res.sendStatus(400)
+  res.send(execTextFix(req.body.text, req.body.options))
 })
 
 app.listen((process.env.PORT || 5000), function() {
