@@ -1,0 +1,6 @@
+{
+  "name": "locks-textlint-server",
+  "description": "TextLint Server for Locks. ",
+  "keywords": ["nodejs", "express"],
+  "repository": "https://github.com/yymm/locks-textlint-server"
+}
